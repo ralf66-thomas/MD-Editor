@@ -36,6 +36,11 @@ struct ContentView: View {
                 }
             }
         }
+        .focusedSceneValue(\.markdownDocumentText, document.text)
+        .onAppear { CurrentMarkdownDocument.shared.text = document.text }
+        .onChange(of: document.text) { _, newValue in
+            CurrentMarkdownDocument.shared.text = newValue
+        }
         .toolbar {
             ToolbarItemGroup {
                 Button {
@@ -58,6 +63,13 @@ struct ContentView: View {
                     Label("Save As", systemImage: "square.and.arrow.down.on.square")
                 }
                 .help("Save the current file under a new name  (⇧⌘S)")
+
+                Button {
+                    MarkdownPrinter.print(markdown: document.text)
+                } label: {
+                    Label("Print", systemImage: "printer")
+                }
+                .help("Print the rendered Markdown — save as PDF from the print panel  (⌘P)")
 
                 Button {
                     NSApp.sendAction(Selector(("performClose:")), to: nil, from: nil)

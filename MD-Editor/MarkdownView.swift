@@ -12,16 +12,24 @@ struct MarkdownView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                let blocks = MarkdownParser.parse(markdown)
-                ForEach(blocks.indices, id: \.self) { index in
-                    MarkdownBlockView(block: blocks[index])
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding()
-            .textSelection(.enabled)
+            MarkdownContent(markdown: markdown)
+                .padding()
+                .textSelection(.enabled)
         }
+    }
+}
+
+struct MarkdownContent: View {
+    let markdown: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            let blocks = MarkdownParser.parse(markdown)
+            ForEach(blocks.indices, id: \.self) { index in
+                MarkdownBlockView(block: blocks[index])
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -274,7 +282,7 @@ private final class TableBuilder {
 
 // MARK: - Block rendering
 
-private struct MarkdownBlockView: View {
+struct MarkdownBlockView: View {
     let block: MarkdownBlock
 
     var body: some View {

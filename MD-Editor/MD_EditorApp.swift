@@ -13,5 +13,8 @@ struct MD_EditorApp: App {
         DocumentGroup(newDocument: MD_EditorDocument()) { file in
             ContentView(document: file.$document)
         }
+        .commands {
+            PrintCommands()
+        }
     }
 }
