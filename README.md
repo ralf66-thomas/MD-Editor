@@ -22,6 +22,7 @@ A lightweight, native **Markdown editor for macOS** built with SwiftUI. MD-Edito
   - Thematic breaks (horizontal rules)
   - **Tables** with per-column alignment, header styling, and zebra-striped rows
 - **Native file format support** — reads and writes `.md`, `.markdown`, `.mdown`, and `.mkd` files, plus plain text.
+- **Printing & PDF export** — print the styled, rendered document through the standard macOS print panel (with **Save as PDF** built in).
 - **Apple Intelligence Writing Tools** integration for the editor.
 - **Selectable text** in the preview for easy copying.
 
@@ -58,10 +59,84 @@ When the app launches it opens a new untitled document (default content: `Hello,
 | 📁 Open File | Open an existing Markdown file | `⌘O` |
 | 💾 Save File | Save changes to the current file | `⌘S` |
 | 💾 Save As | Save the document under a new name | `⇧⌘S` |
+| 🖨️ Print | Print the rendered Markdown / save as PDF | `⌘P` |
 | ✕ Close File | Close the current document window | `⌘W` |
 | ✨ Writing Tools | Open Apple Intelligence Writing Tools | — |
 
 Use the **segmented picker** on the right of the toolbar to switch between **Edit**, **Preview**, and **Split** modes.
+
+---
+
+## Installing the App on your Mac
+
+Once you've built MD-Editor, you can install it like any other macOS app by copying `MD-Editor.app` into your **Applications** folder.
+
+### 1. Produce the `MD-Editor.app` bundle
+
+**Option A — Build in Xcode:**
+
+1. Open the project: `open MD-Editor.xcodeproj`
+2. Choose **Product ▸ Build** (`⌘B`), using the **Release** configuration for a distributable build (**Product ▸ Scheme ▸ Edit Scheme… ▸ Run ▸ Build Configuration ▸ Release**).
+3. In the Project Navigator, expand **Products**, right-click **`MD-Editor.app`**, and choose **Show in Finder**.
+
+**Option B — Build from the command line:**
+
+```sh
+xcodebuild -project MD-Editor.xcodeproj \
+  -scheme MD-Editor \
+  -configuration Release \
+  -derivedDataPath build \
+  clean build
+```
+
+The finished bundle will be at:
+
+```
+build/Build/Products/Release/MD-Editor.app
+```
+
+### 2. Copy the app into /Applications
+
+Drag `MD-Editor.app` from Finder into your **Applications** folder, or copy it from the terminal:
+
+```sh
+cp -R build/Build/Products/Release/MD-Editor.app /Applications/
+```
+
+### 3. Launch the app
+
+- Open **Launchpad** or the **Applications** folder and double-click **MD-Editor**, or run it from the terminal:
+
+  ```sh
+  open /Applications/MD-Editor.app
+  ```
+
+### 4. First launch — Gatekeeper note
+
+Because this is a locally built app that isn't signed with an Apple Developer ID or notarized, macOS Gatekeeper may warn that *"MD-Editor cannot be opened because the developer cannot be verified."* To open it the first time:
+
+- **Right-click** (or Control-click) `MD-Editor.app` → **Open** → confirm **Open** in the dialog. macOS remembers your choice for future launches.
+- Alternatively, go to **System Settings ▸ Privacy & Security**, scroll to the Security section, and click **Open Anyway**.
+- If macOS reports the app is *"damaged"* (the quarantine flag), clear it once with:
+
+  ```sh
+  xattr -dr com.apple.quarantine /Applications/MD-Editor.app
+  ```
+
+> **Tip:** To set MD-Editor as the default app for Markdown files, right-click any `.md` file in Finder → **Get Info** → under **Open with**, choose **MD-Editor**, then click **Change All…**.
+
+---
+
+### Printing & exporting to PDF
+
+MD-Editor can print the **styled, rendered Markdown** (not the raw source). Trigger printing in either of two ways:
+
+- Press **`⌘P`**, or
+- Click the **Print** (🖨️) button in the toolbar, or choose **File ▸ Print…**.
+
+The standard macOS print panel appears. To **export a PDF** instead of printing on paper, open the **PDF** dropdown at the bottom-left of the print panel and choose **Save as PDF…**.
+
+> The print command renders the current document through the same Markdown renderer used by the Preview, so headers, lists, tables, code blocks, and inline styling all appear in the printout/PDF.
 
 ---
 
@@ -74,6 +149,7 @@ MD-Editor/
 │   ├── MD_EditorDocument.swift   # FileDocument model — read/write Markdown & plain text
 │   ├── ContentView.swift         # Main UI — view-mode switching and toolbar
 │   ├── MarkdownView.swift        # Markdown parser and SwiftUI renderer
+│   ├── MarkdownPrinter.swift     # Printing / PDF export via NSPrintOperation
 │   ├── Info.plist                # Document type & UTI declarations
 │   └── Assets.xcassets/          # App icon and accent color
 ├── MD-EditorTests/               # Unit tests
@@ -118,6 +194,11 @@ This is the heart of the rendering pipeline. Rather than depending on a third-pa
    - Tables render via a `Grid` with header styling, zebra striping, per-column text alignment, and a rounded border.
 
    Blocks are laid out in a scrollable, left-aligned `VStack`, with text selection enabled.
+
+### `MarkdownPrinter` — printing & PDF export
+Provides the print pipeline. `MarkdownPrinter.print(markdown:)` renders the document with the same SwiftUI Markdown view inside an `NSHostingView`, sizes it to the printable page width, and runs an `NSPrintOperation` that presents the standard macOS print panel (which includes **Save as PDF**).
+
+The File-menu **Print…** command is supplied by a `PrintCommands` group that replaces the standard `.printItem` and owns the `⌘P` key equivalent — this is important, because in a SwiftUI `DocumentGroup` app a toolbar-button shortcut does **not** reliably preempt the document responder chain. Binding `⌘P` to the menu command ensures the keystroke reaches the custom handler instead of falling through to `FileDocument`'s unimplemented `printDocument:` (which would otherwise raise *"This application does not support printing."*). The currently focused document's text is delivered to the command via a `FocusedValue`, with a shared singleton fallback for the moments before focus propagation runs.
 
 ---
 

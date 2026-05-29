@@ -362,27 +362,22 @@ private struct MarkdownTableView: View {
         return max(columns.count, fromHeader, fromRows)
     }
 
+    private let horizontalPadding: CGFloat = 10
+    private let verticalPadding: CGFloat = 6
+
     var body: some View {
-        Grid(alignment: .topLeading, horizontalSpacing: 0, verticalSpacing: 0) {
+        let widths = preferredColumnWidths
+
+        VStack(alignment: .leading, spacing: 0) {
             if !header.isEmpty {
-                GridRow {
-                    ForEach(0..<columnCount, id: \.self) { column in
-                        cell(content: cellContent(in: header, column: column),
-                             column: column,
-                             isHeader: true)
-                    }
-                }
-                .background(Color.secondary.opacity(0.12))
+                rowLayout(content: header, isHeader: true, widths: widths)
+                    .background(Color.secondary.opacity(0.12))
             }
             ForEach(rows.indices, id: \.self) { rowIndex in
-                GridRow {
-                    ForEach(0..<columnCount, id: \.self) { column in
-                        cell(content: cellContent(in: rows[rowIndex], column: column),
-                             column: column,
-                             isHeader: false)
-                    }
-                }
-                .background(rowIndex.isMultiple(of: 2) ? Color.clear : Color.secondary.opacity(0.05))
+                rowLayout(content: rows[rowIndex], isHeader: false, widths: widths)
+                    .background(rowIndex.isMultiple(of: 2)
+                                ? Color.clear
+                                : Color.secondary.opacity(0.05))
             }
         }
         .overlay(
@@ -392,17 +387,59 @@ private struct MarkdownTableView: View {
         .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
-    private func cellContent(in row: [AttributedString], column: Int) -> AttributedString {
-        column < row.count ? row[column] : AttributedString()
+    private func rowLayout(content: [AttributedString],
+                           isHeader: Bool,
+                           widths: [CGFloat]) -> some View {
+        ProportionalRowLayout(preferredWidths: widths) {
+            ForEach(0..<columnCount, id: \.self) { column in
+                cellView(content: cellContent(in: content, column: column),
+                         column: column,
+                         isHeader: isHeader)
+            }
+        }
     }
 
-    private func cell(content: AttributedString, column: Int, isHeader: Bool) -> some View {
+    private func cellView(content: AttributedString,
+                          column: Int,
+                          isHeader: Bool) -> some View {
         Text(content)
             .font(isHeader ? .body.weight(.semibold) : .body)
             .multilineTextAlignment(textAlignment(for: column))
-            .frame(maxWidth: .infinity, alignment: frameAlignment(for: column))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.horizontal, horizontalPadding)
+            .padding(.vertical, verticalPadding)
+            .frame(maxWidth: .infinity,
+                   maxHeight: .infinity,
+                   alignment: cellAlignment(for: column))
+    }
+
+    private var preferredColumnWidths: [CGFloat] {
+        let regular = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        let semibold = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
+        var widths = Array(repeating: CGFloat(0), count: columnCount)
+
+        if !header.isEmpty {
+            for column in 0..<columnCount {
+                let text = String(cellContent(in: header, column: column).characters)
+                widths[column] = max(widths[column], textWidth(text, font: semibold))
+            }
+        }
+        for row in rows {
+            for column in 0..<columnCount {
+                let text = String(cellContent(in: row, column: column).characters)
+                widths[column] = max(widths[column], textWidth(text, font: regular))
+            }
+        }
+        // Slack for inline bold/italic inside body cells.
+        return widths.map { ceil($0) + 2 * horizontalPadding + 4 }
+    }
+
+    private func textWidth(_ string: String, font: NSFont) -> CGFloat {
+        guard !string.isEmpty else { return 0 }
+        return (string as NSString).size(withAttributes: [.font: font]).width
+    }
+
+    private func cellContent(in row: [AttributedString], column: Int) -> AttributedString {
+        column < row.count ? row[column] : AttributedString()
     }
 
     private func textAlignment(for column: Int) -> TextAlignment {
@@ -414,18 +451,77 @@ private struct MarkdownTableView: View {
         }
     }
 
-    private func frameAlignment(for column: Int) -> Alignment {
+    private func cellAlignment(for column: Int) -> Alignment {
+        let horizontal: HorizontalAlignment
         switch alignment(for: column) {
-        case .left: return .leading
-        case .center: return .center
-        case .right: return .trailing
-        @unknown default: return .leading
+        case .left: horizontal = .leading
+        case .center: horizontal = .center
+        case .right: horizontal = .trailing
+        @unknown default: horizontal = .leading
         }
+        return Alignment(horizontal: horizontal, vertical: .top)
     }
 
     private func alignment(for column: Int) -> PresentationIntent.TableColumn.Alignment {
         guard column < columns.count else { return .left }
         return columns[column].alignment
+    }
+}
+
+/// Lays out one table row. If the sum of preferred column widths exceeds the
+/// proposed width, each column is scaled down proportionally so the row
+/// exactly fills the proposed width — cells then wrap their text to fit.
+/// Used synchronously, so it also works inside ImageRenderer for printing.
+private struct ProportionalRowLayout: Layout {
+    let preferredWidths: [CGFloat]
+
+    func sizeThatFits(proposal: ProposedViewSize,
+                      subviews: Subviews,
+                      cache: inout ()) -> CGSize {
+        let widths = effectiveWidths(proposalWidth: proposal.width,
+                                     count: subviews.count)
+        var rowHeight: CGFloat = 0
+        for (index, subview) in subviews.enumerated() {
+            let size = subview.sizeThatFits(.init(width: widths[index], height: nil))
+            rowHeight = max(rowHeight, size.height)
+        }
+        return CGSize(width: widths.reduce(0, +), height: rowHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect,
+                       proposal: ProposedViewSize,
+                       subviews: Subviews,
+                       cache: inout ()) {
+        let widths = effectiveWidths(proposalWidth: bounds.width,
+                                     count: subviews.count)
+        var x = bounds.minX
+        for (index, subview) in subviews.enumerated() {
+            subview.place(
+                at: CGPoint(x: x, y: bounds.minY),
+                proposal: .init(width: widths[index], height: bounds.height)
+            )
+            x += widths[index]
+        }
+    }
+
+    private func effectiveWidths(proposalWidth: CGFloat?, count: Int) -> [CGFloat] {
+        guard count > 0 else { return [] }
+        let preferred: [CGFloat] = preferredWidths.count == count
+            ? preferredWidths
+            : Array(repeating: 100, count: count)
+        let preferredTotal = preferred.reduce(0, +)
+        guard preferredTotal > 0 else {
+            let share = (proposalWidth ?? 100) / CGFloat(count)
+            return Array(repeating: share, count: count)
+        }
+        guard let available = proposalWidth, available > 0 else {
+            return preferred
+        }
+        if available >= preferredTotal {
+            return preferred
+        }
+        let scale = available / preferredTotal
+        return preferred.map { $0 * scale }
     }
 }
 
